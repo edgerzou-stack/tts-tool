@@ -1,13 +1,36 @@
 import asyncio
 import edge_tts
 import os
-import re
-import argparse
+from tqdm.asyncio import tqdm
 
-async def async_tts(text, save_path, voice_id, sem):
+async def async_tts(text, save_path, voice_id, sem, title):
     async with sem:
         communicate = edge_tts.Communicate(text, voice_id)
-        await communicate.save(save_path)
+        total_chars = len(text)
+        processed_chars = 0
+        
+        # 设置 leave=False，这样转换完后进度条会自动消失，保持终端整洁
+        pbar = tqdm(total=total_chars, desc=f"转换中: {title[:15]}...", unit="字", leave=False, bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}")
+        
+        with open(save_path, "wb") as f:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    f.write(chunk["data"])
+                elif chunk["type"] == "SentenceBoundary":
+                    # 获取当前句子长度
+                    chunk_len = len(chunk["text"])
+                    processed_chars += chunk_len
+                    # 避免超过总长度
+                    if processed_chars > total_chars:
+                        chunk_len -= (processed_chars - total_chars)
+                        processed_chars = total_chars
+                    pbar.update(chunk_len)
+        
+        # 补全最后一点进度
+        if processed_chars < total_chars:
+            pbar.update(total_chars - processed_chars)
+        
+        pbar.close()
 
 def split_text_by_chapters(text):
     # 支持匹配 "第一章 xxx"、"1、 xxx"、"1、xxx" 以及 "序言"
@@ -48,16 +71,15 @@ async def process_all_chapters(chapters, output_dir, voice):
             
         save_path = os.path.join(output_dir, filename)
         
-        # 包装任务
+        # 包装任务，传递 title 以供进度条显示
         task = asyncio.create_task(convert_and_log(idx, len(chapters)-1, title, filename, content, save_path, voice, sem))
         tasks.append(task)
         
     await asyncio.gather(*tasks)
 
 async def convert_and_log(idx, total, title, filename, content, save_path, voice, sem):
-    print(f"等待转换 [{idx}/{total}]: {title} ...")
     try:
-        await async_tts(content, save_path, voice, sem)
+        await async_tts(content, save_path, voice, sem, title)
         print(f"  √ 成功: {filename}")
     except Exception as e:
         print(f"  × 失败: {filename}, 错误: {e}")
