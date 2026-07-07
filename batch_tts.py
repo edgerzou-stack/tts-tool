@@ -4,9 +4,10 @@ import os
 import re
 import argparse
 
-async def async_tts(text, save_path, voice_id):
-    communicate = edge_tts.Communicate(text, voice_id)
-    await communicate.save(save_path)
+async def async_tts(text, save_path, voice_id, sem):
+    async with sem:
+        communicate = edge_tts.Communicate(text, voice_id)
+        await communicate.save(save_path)
 
 def split_text_by_chapters(text):
     # 支持匹配 "第一章 xxx"、"1、 xxx"、"1、xxx" 以及 "序言"
@@ -31,6 +32,36 @@ def split_text_by_chapters(text):
         
     return chapters
 
+async def process_all_chapters(chapters, output_dir, voice):
+    # 使用 Semaphore 控制并发数，避免被微软服务器限制或封禁 (最大同时转换 3 个章节)
+    sem = asyncio.Semaphore(3)
+    tasks = []
+    
+    for idx, (title, content) in enumerate(chapters):
+        if not content:
+            continue
+            
+        if title.startswith("00_"):
+            filename = f"{title}.mp3"
+        else:
+            filename = f"{idx:02d}_{title}.mp3"
+            
+        save_path = os.path.join(output_dir, filename)
+        
+        # 包装任务
+        task = asyncio.create_task(convert_and_log(idx, len(chapters)-1, title, filename, content, save_path, voice, sem))
+        tasks.append(task)
+        
+    await asyncio.gather(*tasks)
+
+async def convert_and_log(idx, total, title, filename, content, save_path, voice, sem):
+    print(f"等待转换 [{idx}/{total}]: {title} ...")
+    try:
+        await async_tts(content, save_path, voice, sem)
+        print(f"  √ 成功: {filename}")
+    except Exception as e:
+        print(f"  × 失败: {filename}, 错误: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="将 TXT 文件按章节分割并转换为 MP3")
     parser.add_argument("input_file", help="输入的 TXT 文件路径")
@@ -51,28 +82,10 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
         
-    print(f"找到 {len(chapters)} 个独立章节/部分，准备开始转换...")
+    print(f"找到 {len(chapters)} 个独立章节/部分，准备开始并发转换...")
     
-    for idx, (title, content) in enumerate(chapters):
-        if not content:
-            continue
-            
-        # 如果 title 已经包含序号（比如 00_前言），就直接用，否则加上序号排序
-        if title.startswith("00_"):
-            filename = f"{title}.mp3"
-        else:
-            filename = f"{idx:02d}_{title}.mp3"
-            
-        save_path = os.path.join(args.output_dir, filename)
-        
-        print(f"正在转换 [{idx}/{len(chapters)-1}]: {title} -> {filename} ...")
-        
-        # 为了防止某些特殊字符导致网络报错，添加简单的重试机制
-        try:
-            asyncio.run(async_tts(content, save_path, args.voice))
-            print(f"  √ 成功: {filename}")
-        except Exception as e:
-            print(f"  × 失败: {filename}, 错误: {e}")
+    # 启动并发转换
+    asyncio.run(process_all_chapters(chapters, args.output_dir, args.voice))
             
     # 生成 M3U 播放列表
     playlist_path = os.path.join(args.output_dir, "playlist.m3u")
