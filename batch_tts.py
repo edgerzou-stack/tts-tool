@@ -9,8 +9,9 @@ async def async_tts(text, save_path, voice_id):
     await communicate.save(save_path)
 
 def split_text_by_chapters(text):
-    # 根据 "第一章 xxx" 或者 "序言" 进行正则拆分
-    pattern = re.compile(r'^(序\s*言|第[一二三四五六七八九十百]+章.*?)$', re.MULTILINE)
+    # 支持匹配 "第一章 xxx"、"1、 xxx"、"1、xxx" 以及 "序言"
+    # 添加一个简单的断言过滤掉文本内刚好以 "1、" 开头的普通句子(比如特定的印第安人名言引用)
+    pattern = re.compile(r'^(序\s*言|第[一二三四五六七八九十百]+章.*?|\d{1,2}、\s*(?!凡有辖内).*?)$', re.MULTILINE)
     
     parts = pattern.split(text)
     
