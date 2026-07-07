@@ -1,6 +1,8 @@
 import asyncio
 import edge_tts
 import os
+import re
+import argparse
 from tqdm.asyncio import tqdm
 
 async def async_tts(text, save_path, voice_id, sem, title):
