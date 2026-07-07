@@ -73,6 +73,22 @@ def main():
         except Exception as e:
             print(f"  × 失败: {filename}, 错误: {e}")
             
+    # 生成 M3U 播放列表
+    playlist_path = os.path.join(args.output_dir, "playlist.m3u")
+    try:
+        # 获取所有 mp3 文件并按名称排序
+        mp3_files = sorted([f for f in os.listdir(args.output_dir) if f.endswith('.mp3')])
+        with open(playlist_path, 'w', encoding='utf-8') as pl:
+            pl.write("#EXTM3U\n")
+            for mp3 in mp3_files:
+                # 提取去掉了扩展名的文件名作为显示标题
+                title_display = os.path.splitext(mp3)[0]
+                pl.write(f"#EXTINF:-1,{title_display}\n")
+                pl.write(f"{mp3}\n")
+        print(f"\n√ 已自动生成播放列表: {playlist_path} (可以使用各类音乐播放器直接打开)")
+    except Exception as e:
+        print(f"\n生成播放列表失败: {e}")
+            
     print(f"\n全部转换完成！音频保存在文件夹: {os.path.abspath(args.output_dir)}")
 
 if __name__ == "__main__":
